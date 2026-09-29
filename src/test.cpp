@@ -3,6 +3,10 @@
 #include "Solver.h"
 #include "test_macros.h"
 #include <cmath>
+#include <omp.h>
+#ifdef LIKWID_PERFMON
+#include <likwid.h>
+#endif
 
 double uSineFunc(int i, int j, double h_x, double h_y)
 {
@@ -29,6 +33,13 @@ double rhsLinearFunc(int i, int j, double h_x, double h_y)
 //To test Solver we solve the inverse problem
 int main()
 {
+#ifdef LIKWID_PERFMON
+    LIKWID_MARKER_INIT;
+#pragma omp parallel
+    {
+        LIKWID_MARKER_THREADINIT;
+    }
+#endif
     TESTS_START(13);
 
     int nx = 199, ny = 99; //nx and ny contains only inner points
@@ -166,4 +177,8 @@ int main()
     writeGnuplotFile("./results/PCG_linear.dat", x, 1, 1, false);
 
     TESTS_END;
+#ifdef LIKWID_PERFMON
+    LIKWID_MARKER_CLOSE;
+#endif
+    return success_flag ? 0 : 1;
 }

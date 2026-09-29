@@ -44,6 +44,9 @@ int main(const int argc, char* const argv[])
 
 #pragma omp parallel
     {
+#ifdef LIKWID_PERFMON
+        LIKWID_MARKER_THREADINIT;
+#endif
 #pragma omp single
         {
             numThreads = omp_get_num_threads();

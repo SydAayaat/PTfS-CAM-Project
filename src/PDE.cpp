@@ -1,6 +1,8 @@
 #include "PDE.h"
 #include <math.h>
 #include <iostream>
+#include <omp.h>
+#include <algorithm>
 #ifdef LIKWID_PERFMON
     #include <likwid.h>
 #endif
@@ -111,10 +113,12 @@ void PDE::applyStencil(Grid* lhs, Grid* x)
     const double w_c = 2.0*w_x + 2.0*w_y;
 
 
+#pragma omp parallel if((xSize-2)*(ySize-2) >= 32768)
+    {
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_START("APPLY_STENCIL");
 #endif
-
+#pragma omp for schedule(static)
     for ( int j=1; j<ySize-1; ++j)
     {
         for ( int i=1; i<xSize-1; ++i)
@@ -126,6 +130,7 @@ void PDE::applyStencil(Grid* lhs, Grid* x)
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_STOP("APPLY_STENCIL");
 #endif
+    }
 
 
     STOP_TIMER(APPLY_STENCIL);
@@ -148,30 +153,49 @@ void PDE::GSPreCon(Grid* rhs, Grid *x)
     const double w_y = 1.0/(h_y*h_y);
     const double w_c = 1.0/static_cast<double>((2.0*w_x + 2.0*w_y));
 
+    // Tiles on the same diagonal do not depend on each other. Each tile
+    // retains the original lexicographic order, so this is the same SGS
+    // preconditioner (including the backward sweep), not a new variant.
+    const int tileY = xSize < 4096 ? 64 : 32;
+    const int tileX = xSize < 4096 ? 128 : 512;
+    const int tilesY = (ySize-2 + tileY-1)/tileY;
+    const int tilesX = (xSize-2 + tileX-1)/tileX;
+#pragma omp parallel if((xSize-2)*(ySize-2) >= 32768 && omp_get_max_threads() > 1)
+    {
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_START("GS_PRE_CON");
 #endif
-
-    //forward substitution
-    for ( int j=1; j<ySize-1; ++j)
-    {
-        for ( int i=1; i<xSize-1; ++i)
-        {
-            (*x)(j,i) = w_c*((*rhs)(j,i) + (w_y*(*x)(j-1,i) + w_x*(*x)(j,i-1)));
+    for (int diag=0; diag<tilesY+tilesX-1; ++diag) {
+        const int first = std::max(0, diag-tilesX+1);
+        const int last = std::min(tilesY-1, diag);
+#pragma omp for schedule(static)
+        for (int ty=first; ty<=last; ++ty) {
+            const int tx = diag-ty;
+            const int yEnd = std::min(ySize-1, 1+(ty+1)*tileY);
+            const int xEnd = std::min(xSize-1, 1+(tx+1)*tileX);
+            for (int j=1+ty*tileY; j<yEnd; ++j)
+                for (int i=1+tx*tileX; i<xEnd; ++i)
+                    (*x)(j,i) = w_c*((*rhs)(j,i) +
+                        (w_y*(*x)(j-1,i) + w_x*(*x)(j,i-1)));
         }
     }
-    //backward substitution
-    for ( int j=ySize-2; j>0; --j)
-    {
-        for ( int i=xSize-2; i>0; --i)
-        {
-            (*x)(j,i) = (*x)(j,i) + w_c*(w_y*(*x)(j+1,i) + w_x*(*x)(j,i+1));
+    for (int diag=tilesY+tilesX-2; diag>=0; --diag) {
+        const int first = std::max(0, diag-tilesX+1);
+        const int last = std::min(tilesY-1, diag);
+#pragma omp for schedule(static)
+        for (int ty=first; ty<=last; ++ty) {
+            const int tx = diag-ty;
+            const int yBegin = 1+ty*tileY;
+            const int xBegin = 1+tx*tileX;
+            for (int j=std::min(ySize-2, yBegin+tileY-1); j>=yBegin; --j)
+                for (int i=std::min(xSize-2, xBegin+tileX-1); i>=xBegin; --i)
+                    (*x)(j,i) += w_c*(w_y*(*x)(j+1,i) + w_x*(*x)(j,i+1));
         }
     }
-
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_STOP("GS_PRE_CON");
 #endif
+    }
 
 
     STOP_TIMER(GS_PRE_CON);

@@ -44,6 +44,9 @@ perf: perf.o $(DEPS)
 test: test_test.o $(DEPS:.o=_test.o)
 	$(CXX) $(CXXFLAGS) $(TEST_FLAGS) -o test test_test.o $(DEPS:.o=_test.o) $(LDFLAGS) $(LIBS) $(LIKWID_LINK_LIB)
 
+parallel_check: tests/parallel_check.cpp $(DEPS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ tests/parallel_check.cpp $(DEPS) $(LDFLAGS) $(LIBS) $(LIKWID_LINK_LIB)
+
 %.o: src/%.cpp
 	$(CXX) -c $(CXXFLAGS) -Wno-tautological-constant-compare $(INCLUDES) src/$(@:.o=).cpp
 
@@ -51,4 +54,4 @@ test: test_test.o $(DEPS:.o=_test.o)
 	$(CXX) -c $(CXXFLAGS) $(INCLUDES) $(TEST_FLAGS) -o $(@:_test=) src/$(@:_test.o=).cpp
 
 clean:
-	@$(RM) -rf *.o perf test results
+	@$(RM) -rf *.o perf test parallel_check results
