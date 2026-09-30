@@ -39,6 +39,14 @@ measured or justified traffic model. Report a range when assumptions vary.
 
 ## Fritz run sheet
 
+For the optional Moodle score, submit `leaderboard.sbatch` with `sbatch` from
+the repository directory after loading the Intel compiler environment. It
+requests one 72-core `singlenode` allocation, records output in
+`leaderboard-<job-id>.txt`, runs the supplied tests, and invokes the unchanged
+leaderboard script with one 72-CPU step. Add `--account=<authorized-account>`
+to the `sbatch` command only if your course allocation requires it. The
+script's output file is still submitted to Moodle manually.
+
 1. Request a **dedicated Fritz node**; record job ID, node, compiler version,
    CPU frequency/governor, OpenMP settings, and the exact commit SHA. The
    course asks for 2.4 GHz and the performance governor.
