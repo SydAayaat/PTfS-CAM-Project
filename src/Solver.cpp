@@ -1,11 +1,45 @@
 #include "Solver.h"
 #include "Grid.h"
+#ifdef LIKWID_PERFMON
+#include <likwid.h>
+#endif
 
 #define IS_VALID(a)\
 	!(std::isnan(a) || std::isinf(a))
 
 SolverClass::SolverClass(PDE *pde_, Grid *x_, Grid *b_):pde(pde_),x(x_),b(b_)
 {
+}
+
+// One pass updates both vectors and obtains the stopping criterion. This
+// replaces two AXPBY traversals and a separate residual dot product.
+static double updateSolutionResidual(Grid *x, Grid *r, Grid *p, Grid *v,
+                                     double lambda)
+{
+    double norm = 0.0;
+    const int columns = x->columns;
+    const int rows = x->rows;
+#pragma omp parallel reduction(+:norm) if((rows-2)*(columns-2) >= 32768)
+    {
+#ifdef LIKWID_PERFMON
+    LIKWID_MARKER_START("UPDATE_RESIDUAL");
+#endif
+#pragma omp for schedule(static)
+    for (int j=1; j<rows-1; ++j) {
+        const int base = j*columns;
+        for (int i=1; i<columns-1; ++i) {
+            const int index = base+i;
+            x->arrayPtr[index] += lambda*p->arrayPtr[index];
+            const double residual = r->arrayPtr[index] - lambda*v->arrayPtr[index];
+            r->arrayPtr[index] = residual;
+            norm += residual*residual;
+        }
+    }
+#ifdef LIKWID_PERFMON
+    LIKWID_MARKER_STOP("UPDATE_RESIDUAL");
+#endif
+    }
+    return norm;
 }
 
 int SolverClass::CG(int niter, double tol)
@@ -32,11 +66,7 @@ int SolverClass::CG(int niter, double tol)
     {
         pde->applyStencil(v,p);
         lambda =  alpha_0/dotProduct(v,p);
-        //Update x
-        axpby(x, 1.0, x, lambda, p);
-        //Update r
-        axpby(r, 1.0, r, -lambda, v);
-        alpha_1 = dotProduct(r,r);
+        alpha_1 = updateSolutionResidual(x,r,p,v,lambda);
         //Update p
         axpby(p, 1.0, r, alpha_1/alpha_0, p);
         alpha_0 = alpha_1;
@@ -84,11 +114,7 @@ int SolverClass::PCG(int niter, double tol)
     {
         pde->applyStencil(v,p);
         lambda =  alpha_0/dotProduct(v,p);
-        //Update x
-        axpby(x, 1.0, x, lambda, p);
-        //Update r
-        axpby(r, 1.0, r, -lambda, v);
-        res_norm_sq = dotProduct(r,r);
+        res_norm_sq = updateSolutionResidual(x,r,p,v,lambda);
         //Update z
         pde->GSPreCon(r, z);
         alpha_1 = dotProduct(r,z);

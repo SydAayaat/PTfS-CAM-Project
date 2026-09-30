@@ -1,6 +1,7 @@
 #include "Grid.h"
 #include <algorithm>
 #include <iostream>
+#include <omp.h>
 #if __cplusplus >= 201703L && __has_include(<filesystem>)
   #include <filesystem>
   namespace fs = std::filesystem;
@@ -24,6 +25,7 @@ Grid::Grid(int columns_,int rows_):columns(columns_+2*HALO),rows(rows_+2*HALO)
 
     //always pad with halo; to support Dirichlet
     arrayPtr = new double[ rows*columns];
+#pragma omp parallel for schedule(static) if(rows*columns >= 32768)
     for (int i =0; i<rows*columns;i++)
     {
         arrayPtr[i] = 0.0;
@@ -37,6 +39,7 @@ Grid::Grid(int columns_,int rows_, BC_TYPE *ghost_):columns(columns_+2*HALO),row
     }
 
     arrayPtr = new double[rows*columns];
+#pragma omp parallel for schedule(static) if(rows*columns >= 32768)
     for (int i =0; i<rows*columns;i++)
     {
         arrayPtr[i] = 0.0;
@@ -58,6 +61,7 @@ Grid::Grid(const Grid &s)
         int totGrids = rows * columns;
         // performing a deep-copy
         arrayPtr = new double[totGrids];
+#pragma omp parallel for schedule(static) if(totGrids >= 32768)
         for(int i=0; i<totGrids;++i)
         {
             arrayPtr[i] = s.arrayPtr[i];
@@ -175,6 +179,7 @@ void Grid::fill(double val, bool halo)
 {
     int shift = halo?0:HALO;
 
+#pragma omp parallel for schedule(static) if(numGrids() >= 32768)
     for(int j=shift; j<numGrids_y(true)-shift; ++j) {
         for(int i=shift; i<numGrids_x(true)-shift; ++i) {
             (*this)(j,i) = val;
@@ -198,6 +203,7 @@ void Grid::fill(std::function<double(int,int)> func, bool halo)
 {
     int shift = halo?0:HALO;
 
+#pragma omp parallel for schedule(static) if(numGrids() >= 32768)
     for(int j=shift; j<numGrids_y(true)-shift; ++j) {
         for(int i=shift; i<numGrids_x(true)-shift; ++i) {
             (*this)(j,i) = func(i,j);
@@ -259,10 +265,12 @@ void axpby(Grid *lhs, double a, Grid *x, double b, Grid *y, bool halo)
 
     int shift = halo?0:HALO;
 
+#pragma omp parallel if(lhs->numGrids() >= 32768)
+    {
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_START("AXPBY");
 #endif
-
+#pragma omp for schedule(static)
     for(int yIndex=shift; yIndex<lhs->numGrids_y(true)-shift; ++yIndex)
     {
         for(int xIndex=shift; xIndex<lhs->numGrids_x(true)-shift; ++xIndex)
@@ -273,6 +281,7 @@ void axpby(Grid *lhs, double a, Grid *x, double b, Grid *y, bool halo)
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_STOP("AXPBY");
 #endif
+    }
 
     STOP_TIMER(AXPBY);
 }
@@ -288,10 +297,12 @@ void copy(Grid *lhs, double a, Grid *rhs, bool halo)
 
     int shift = halo?0:HALO;
 
+#pragma omp parallel if(lhs->numGrids() >= 32768)
+    {
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_START("COPY");
 #endif
-
+#pragma omp for schedule(static)
     for(int yIndex=shift; yIndex<lhs->numGrids_y(true)-shift; ++yIndex)
     {
         for(int xIndex=shift; xIndex<lhs->numGrids_x(true)-shift; ++xIndex)
@@ -303,6 +314,7 @@ void copy(Grid *lhs, double a, Grid *rhs, bool halo)
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_STOP("COPY");
 #endif
+    }
 
 
     STOP_TIMER(COPY);
@@ -320,11 +332,13 @@ double dotProduct(Grid *x, Grid *y, bool halo)
 
     int shift = halo?0:HALO;
 
+    double dot_res = 0;
+#pragma omp parallel reduction(+:dot_res) if(x->numGrids() >= 32768)
+    {
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_START("DOT_PRODUCT");
 #endif
-
-    double dot_res = 0;
+#pragma omp for schedule(static)
     for(int yIndex=shift; yIndex<x->numGrids_y(true)-shift; ++yIndex)
     {
         for(int xIndex=shift; xIndex<x->numGrids_x(true)-shift; ++xIndex)
@@ -336,6 +350,7 @@ double dotProduct(Grid *x, Grid *y, bool halo)
 #ifdef LIKWID_PERFMON
     LIKWID_MARKER_STOP("DOT_PRODUCT");
 #endif
+    }
 
 
     STOP_TIMER(DOT_PRODUCT);
